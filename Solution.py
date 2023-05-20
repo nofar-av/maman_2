@@ -9,7 +9,40 @@ from psycopg2 import sql
 
 
 def createTables():
-    pass
+    CREATE TABLE Photos 
+    (PhotoId INTEGER,
+     Description TEXT,
+     DiskSizeNeeded INTEGER NOT NULL,
+     CHECK (PhotoId > 0),
+     CHECK (DiskSizeNeeded >= 0),
+     UNIQUE / PRIMARY KEY (PhotoId));
+    
+    CREATE TABLE Disks
+    (DiskId INTEGER,
+     ManufacturingCompany TEXT NOT NULL,
+     Speed INTEGER NOT NULL,
+     FreeSpace INTEGER NOT NULL,
+     CostPerByte INTEGRER NOT NULL,
+     UNIQUE / PRIMARY KEY (DiskId),
+     CHECK (DiskId > 0),
+     CHECK (Speed > 0),
+     CHECK (CostPerByte > 0),
+     CHECK(FreeSpace >= 0));
+     
+     CREATE TABLE RAMS
+    (RAMId INTEGER,
+     Size INTEGER NOT NULL,
+     Company TEXT NOT NULL,
+     UNIQUE / PRIMARY KEY (RAMId),
+      CHECK (DiskId > 0),
+     CHECK (Speed > 0));
+    
+    CREATE TABLE DiskAndStuff 
+    (DiskId INTEGER,
+     PhotoId INTEGER,
+     FOREIGN KEY (PhotoId)  REFERENCES Photos,
+     PRIMARY KEY (DiskId, PhotoId));
+
 
 
 def clearTables():
