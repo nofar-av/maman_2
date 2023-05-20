@@ -33,11 +33,11 @@ def dropTable() -> None:
         conn.close()
 
 
-def createTable() -> None:
+def createTable(command) -> None:
     conn = None
     try:
         conn = Connector.DBConnector()
-        conn.execute("CREATE TABLE Users(id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.execute(command)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
