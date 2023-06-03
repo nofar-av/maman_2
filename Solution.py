@@ -7,7 +7,7 @@ from Business.Photo import Photo
 from Business.RAM import RAM
 from Business.Disk import Disk
 from psycopg2 import sql
-import unittest
+
 
 
 def CreatePhotoFromResultSet(result_set: ResultSet, rows_affected: int) -> Photo:
@@ -493,7 +493,34 @@ def getConflictingDisks() -> List[int]:
 
 ##MICHAL
 def mostAvailableDisks() -> List[int]:
-    return []
+    #we'll take only the disks that are able to save at least one photo. We'll then order them
+    # by the number of photos they can save, the speed and diskID.
+    most_available_query = sql.SQL("""
+    SELECT DiskID
+    FROM Disks
+    WHERE FreeSpace >= (
+        SELECT MIN(DiskSizeNeeded)
+        FROM Photos
+        )
+    ORDER BY (
+        SELECT COUNT(*)
+        FROM Photos
+        WHERE DiskSizeNeeded <= Disks.FreeSpace
+    ) DESC, Speed Desc, DiskID ASC
+    LIMIT 5
+    
+    """)
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        rows, result = conn.execute(most_available_query)
+        conn.commit()
+    except Exception as e:
+        print(e)
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.close()
+        return [a for (a,) in result.rows]
 
 ##NOFAR
 def getClosePhotos(photoID: int) -> List[int]:
@@ -585,4 +612,25 @@ if __name__ == '__main__':
     print("deleting RAM1:")
     deleteRAM(1)
 
+    print("Adding disks to check most available disks")
+    addDisk(Disk(3, "Michal3", 10, 300, 10))
+    addDisk(Disk(4, "Michal4", 20, 300, 10))
+    addDisk(Disk(5, "Michal5", 30, 300, 10))
+    addDisk(Disk(6, "Michal6", 40, 300, 10))
+
+    removePhotoFromDisk(photo_one, 1)
+    removePhotoFromDisk(photo_two, 1)
+    removePhotoFromDisk(photo_one,2)
+
+    print("Six Disks. All have 300 free space. 5 should be returned, [1,2,6,5,4]:")
+    print(mostAvailableDisks())
+    print("A new photo is added of size 299. We'll put it on disk 1 and 3. Now return [2,6,5,4]")
+    addPhoto(Photo(3, "Nofar", 299))
+    photo_three = getPhotoByID(3)
+    addPhotoToDisk(photo_three,1)
+    addPhotoToDisk(photo_three,3)
+    print(mostAvailableDisks())
+    print("Add a smaller disk 7 that can only hold 2 of 3 photos. Should be added to the end of the list")
+    addDisk(Disk(7, "Michal 7", 60, 100,10))
+    print(mostAvailableDisks())
     dropTables()
