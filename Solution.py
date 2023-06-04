@@ -508,7 +508,6 @@ def mostAvailableDisks() -> List[int]:
         WHERE DiskSizeNeeded <= Disks.FreeSpace
     ) DESC, Speed Desc, DiskID ASC
     LIMIT 5
-    
     """)
     conn = None
     try:
