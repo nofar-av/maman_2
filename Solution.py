@@ -257,7 +257,7 @@ def deletePhoto(photo: Photo) -> ReturnValue:
 
         UPDATE Disks
         SET FreeSpace = FreeSpace + {size}
-        WHERE DiskID = (SELECT DiskID FROM PhotosOnDisk
+        WHERE DiskID IN (SELECT DiskID FROM PhotosOnDisk
                         WHERE PhotoID = {id});  
                
         DELETE FROM Photos 
@@ -367,57 +367,52 @@ def addDiskAndPhoto(disk: Disk, photo: Photo) -> ReturnValue:
 def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
     add_photo_to_disk_query = sql.SQL("""
     BEGIN TRANSACTION;
-
     
-    INSERT INTO PhotosOnDisk (DiskID, PhotoID)
-    SELECT {diskID}, {photoID}
-    WHERE EXISTS (SELECT * FROM Disks
-       WHERE DiskID = {diskID} AND FreeSpace >= {size})
-       OR {diskID} NOT IN (
-       Select DiskID FROM Disks);   
-        
     UPDATE Disks
-        SET FreeSpace = FreeSpace - {size}
-        WHERE DiskID = (SELECT DiskID FROM PhotosOnDisk
-                        WHERE PhotoID = {photoID} AND DiskID = {diskID});  
-                        
-    COMMIT;              
+    SET FreeSpace = FreeSpace - {size}
+    WHERE DiskID = {diskID};
+            
+    INSERT INTO PhotosOnDisk VALUES( {diskID}, {photoID});
+    
+    COMMIT;             
         """).format(photoID=sql.Literal(photo.getPhotoID()), diskID=sql.Literal(diskID), size=sql.Literal(photo.getSize()))
     conn = None
+    rows_affected = 0
+    ret = ReturnValue.OK
     try:
         conn = Connector.DBConnector()
-        rows_affected, res = conn.execute(add_photo_to_disk_query)
-        conn.commit()
+        rows_affected, result = conn.execute(add_photo_to_disk_query)
+        # if result and int(result[0]['updated']) == 0:
+        #     ret = ReturnValue.BAD_PARAMS
     except DatabaseException.ConnectionInvalid as e:
         print(e)
         conn.rollback()
-        return ReturnValue.ERROR
-    except DatabaseException.UNIQUE_VIOLATION as e:
-        print(e)
-        conn.rollback()
-        return ReturnValue.ALREADY_EXISTS
-    except DatabaseException.NOT_NULL_VIOLATION as e:
-        print(e)
-        conn.rollback()
-        return ReturnValue.BAD_PARAMS
+        ret = ReturnValue.ERROR
     except DatabaseException.CHECK_VIOLATION as e:
         print(e)
         conn.rollback()
-        return ReturnValue.ALREADY_EXISTS
+        ret = ReturnValue.BAD_PARAMS
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
         print(e)
         conn.rollback()
-        return ReturnValue.NOT_EXISTS
+        ret = ReturnValue.NOT_EXISTS
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        print(e)
+        conn.rollback()
+        ret = ReturnValue.NOT_EXISTS
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        print(e)
+        conn.rollback()
+        ret = ReturnValue.NOT_EXISTS
     except Exception as e:
         print(e)
         conn.rollback()
-        return ReturnValue.ERROR
+        ret = ReturnValue.ERROR
     finally:
         # will happen any way after try termination or exception handling
+        conn.commit()
         conn.close()
-    if rows_affected == 0:
-        return ReturnValue.BAD_PARAMS
-    ReturnValue.OK
+    return ret
 
 
 def removePhotoFromDisk(photo: Photo, diskID: int) -> ReturnValue:
@@ -476,7 +471,7 @@ def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
     remove_query = f"""
     DELETE FROM RAMsOnDisk 
         WHERE RAMID = {ramID} AND DiskID = {diskID};"""
-    return executeQuery(remove_query)
+    return executeDelQuery(remove_query)
 
 def averagePhotosSizeOnDisk(diskID: int) -> float:
     average_size_query = f"""
@@ -491,7 +486,8 @@ def averagePhotosSizeOnDisk(diskID: int) -> float:
     try:
         conn = Connector.DBConnector()
         rows_effected, result = conn.execute(average_size_query)
-        average_size = float(result[0]['average_size'])
+        if result[0]['average_size']:
+            average_size = float(result[0]['average_size'])
     except Exception as e:
         return -1
 
@@ -512,14 +508,12 @@ def getTotalRamOnDisk(diskID: int) -> int:
     try:
         conn = Connector.DBConnector()
         rows_effected, result = conn.execute(get_ram_query)
-        total_ram = int(result[0]["total_ram"])
-    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
-        print(e)
-        conn.rollback()
-        return 0
+        if result and "total_ram" in result[0] and result[0]["total_ram"]:
+            total_ram = int(result[0]["total_ram"])
+        else:
+            return 0
     except Exception as e:
         return -1
-
     finally:
         conn.close()
     return total_ram
@@ -544,7 +538,8 @@ def getCostForDescription(description: str) -> int:
         conn = Connector.DBConnector()
         rows_effected, result = conn.execute(get_cost_query)
         conn.commit()
-        total_cost = int(result[0]["total_cost"])
+        if result[0]["total_cost"]:
+            total_cost = int(result[0]["total_cost"])
     except Exception as e:
         return -1
 
@@ -579,13 +574,21 @@ def getPhotosCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
     photos_added_query = sql.SQL("""
     SELECT PhotoID 
     FROM Photos p
-    WHERE (
-        p.DiskSizeNeeded <= (
-        SELECT FreeSpace FROM Disks WHERE DiskID = {diskID}
-        ) AND p.DiskSizeNeeded < (
-        SELECT SUM(Size) FROM RAMonDiskSize WHERE DiskID = {diskID}
+    WHERE 
+        (p.DiskSizeNeeded <= (
+        SELECT FreeSpace FROM Disks 
+		WHERE DiskID = {diskID}
         )
-    )
+		AND ((p.DiskSizeNeeded <= (
+        SELECT SUM(Size) FROM RAMonDiskSize WHERE DiskID = {diskID}
+        ))
+        OR (p.DiskSizeNeeded = 0 AND 
+		 (SELECT COUNT(RAMID)
+		 FROM RAMsOnDisk
+		 WHERE DiskID = {diskID}) = 0
+		)
+		)
+		)
     ORDER BY PhotoID ASC
     LIMIT 5
     """).format(diskID=sql.Literal(diskID))
@@ -606,7 +609,11 @@ def getPhotosCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 def isCompanyExclusive(diskID: int) -> bool:
     is_exclusive_query = sql.SQL("""
     SELECT COUNT(*)
-    FROM Disks d FULL OUTER JOIN
+    FROM (
+		SELECT ManufacturingCompany
+		FROM Disks
+		WHERE DiskID = {diskID}) d
+	   FULL OUTER JOIN
         (
         SELECT DISTINCT Company
         FROM RAMs 
@@ -617,7 +624,6 @@ def isCompanyExclusive(diskID: int) -> bool:
         )
         ) AS RAMComp
     ON d.ManufacturingCompany = RAMComp.Company
-    WHERE DiskID = {diskID}
     """).format(diskID=sql.Literal(diskID))
     conn = None
     result = []
@@ -629,6 +635,7 @@ def isCompanyExclusive(diskID: int) -> bool:
     finally:
         # will happen any way after try termination or exception handling
         conn.close()
+    result = [a for (a,) in result.rows]
     return result[0] == 1
 
 ##MICHAL
@@ -709,10 +716,7 @@ def mostAvailableDisks() -> List[int]:
     most_available_query = sql.SQL("""
     SELECT DiskID
     FROM Disks
-    WHERE FreeSpace >= (
-        SELECT MIN(DiskSizeNeeded)
-        FROM Photos
-        )
+    
     ORDER BY (
         SELECT COUNT(*)
         FROM Photos
@@ -720,6 +724,7 @@ def mostAvailableDisks() -> List[int]:
     ) DESC, Speed Desc, DiskID ASC
     LIMIT 5
     """)
+    #WHERE FreeSpace >= (SELECT MIN(DiskSizeNeeded) FROM Photos)
     conn = None
     try:
         conn = Connector.DBConnector()
@@ -727,6 +732,7 @@ def mostAvailableDisks() -> List[int]:
         conn.commit()
     except Exception as e:
         print(e)
+        return []
     finally:
         # will happen any way after try termination or exception handling
         conn.close()
@@ -736,16 +742,22 @@ def mostAvailableDisks() -> List[int]:
 def getClosePhotos(photoID: int) -> List[int]:
 
     close_query =sql.SQL("""
-    SELECT DISTINCT PhotoID
-    FROM PhotosOnDisk pd
-    WHERE PhotoID <> {ID} 
-    GROUP BY PhotoID
-    HAVING COUNT(DISTINCT DiskID) >= (
-        SELECT COUNT(DISTINCT pd1.DiskID) * 0.5
-        FROM PhotosOnDisk pd1
-        WHERE pd1.PhotoID = pd.PhotoID
-    )
-    ORDER BY pd.PhotoID ASC
+    SELECT PhotoID
+    FROM Photos p
+    WHERE PhotoID <> {ID} AND (
+    
+    (SELECT COUNT(DiskID)
+    FROM PhotosOnDisk
+    Where PhotoID =p.PhotoID AND DiskID IN 
+    (SELECT DiskID
+    FROM PhotosOnDisk
+    WHERE PhotoID = {ID})) >=
+    
+    (SELECT COUNT(DiskID) * 0.5
+    FROM PhotosOnDisk
+    WHERE PhotoID ={ID})
+        )
+    ORDER BY p.PhotoID ASC
     LIMIT 10""").format(ID=sql.Literal(photoID))
     
     conn = None
