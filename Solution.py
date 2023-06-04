@@ -116,6 +116,23 @@ def executeQuery(query) -> ReturnValue:
         # will happen any way after try termination or exception handling
         conn.close()
         return res
+    
+
+def executeQueryBasic(query) -> ReturnValue:
+    conn = None
+    res = ReturnValue.OK
+    try:
+        conn = Connector.DBConnector()
+        conn.execute(query)
+        conn.commit()
+    except Exception as e:
+        print(e)
+        conn.rollback()
+        res = ReturnValue.ERROR
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.close()
+        return res
 
 def createTables()-> None:
     create_photos_table = """
@@ -366,8 +383,41 @@ def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
                         
     COMMIT;              
         """).format(photoID=sql.Literal(photo.getPhotoID()), diskID=sql.Literal(diskID), size=sql.Literal(photo.getSize()))
-
-    return executeQuery(add_photo_to_disk_query)
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        rows_affected, res = conn.execute(add_photo_to_disk_query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        print(e)
+        conn.rollback()
+        return ReturnValue.ERROR
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        print(e)
+        conn.rollback()
+        return ReturnValue.ALREADY_EXISTS
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        print(e)
+        conn.rollback()
+        return ReturnValue.BAD_PARAMS
+    except DatabaseException.CHECK_VIOLATION as e:
+        print(e)
+        conn.rollback()
+        return ReturnValue.ALREADY_EXISTS
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        print(e)
+        conn.rollback()
+        return ReturnValue.NOT_EXISTS
+    except Exception as e:
+        print(e)
+        conn.rollback()
+        return ReturnValue.ERROR
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.close()
+    if rows_affected == 0:
+        return ReturnValue.BAD_PARAMS
+    ReturnValue.OK
 
 
 def removePhotoFromDisk(photo: Photo, diskID: int) -> ReturnValue:
@@ -384,7 +434,7 @@ def removePhotoFromDisk(photo: Photo, diskID: int) -> ReturnValue:
     COMMIT;              
         """
 
-    return executeQuery(remove_photo_from_disk_query)
+    return executeQueryBasic(remove_photo_from_disk_query)
 
 
 def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
@@ -392,7 +442,34 @@ def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
         INSERT INTO RAMsOnDisk 
         VALUES({diskID}, {ramID});  
         """
-    return executeQuery(ram_to_disk_query)
+    conn = None
+    res = ReturnValue.OK
+    try:
+        conn = Connector.DBConnector()
+        conn.execute(ram_to_disk_query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        print(e)
+        res = ReturnValue.ERROR
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        print(e)
+        res = ReturnValue.ALREADY_EXISTS
+    except DatabaseException.NOT_NULL_VIOLATION as e:
+        print(e)
+        res = ReturnValue.BAD_PARAMS
+    except DatabaseException.CHECK_VIOLATION as e:
+        print(e)
+        res= ReturnValue.ALREADY_EXISTS
+    except DatabaseException.FOREIGN_KEY_VIOLATION as e:
+        print(e)
+        res = ReturnValue.NOT_EXISTS
+    except Exception as e:
+        print(e)
+        res = ReturnValue.ERROR
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.close()
+        return res
 
 
 def removeRAMFromDisk(ramID: int, diskID: int) -> ReturnValue:
@@ -811,3 +888,16 @@ if __name__ == '__main__':
 #
 #
 #     dropTables()
+
+    print(isDiskContainingAtLeastNumExists("Nofar",3))
+    print("Checking If there is a disk containing at least one photo with MICHAL as des (FALSE):")
+
+    print(isDiskContainingAtLeastNumExists("Michal",1))
+    print("removing RAM 1 from disk 1:")
+    removeRAMFromDisk(1,1)
+
+    first_ram = getRAMByID(1)
+    print("deleting RAM1:")
+    deleteRAM(1)
+
+    dropTables()
