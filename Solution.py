@@ -405,7 +405,24 @@ def getCostForDescription(description: str) -> int:
 
 ##NOFAR
 def getPhotosCanBeAddedToDisk(diskID: int) -> List[int]:
-    return []
+    photos_added_query = sql.SQL("""
+    SELECT PhotoID 
+    FROM Photos p
+    WHERE p.DiskSizeNeeded <= 
+        (SELECT FreeSpace FROM Disks WHERE DiskID = {diskID})
+    ORDER BY PhotoID DESC
+    LIMIT 5
+    """).format(diskID=sql.Literal(diskID))
+    conn = None
+    result = []
+    try:
+        conn = Connector.DBConnector()
+        rows, result = conn.execute(photos_added_query)
+    except Exception as e:
+        return []
+    finally:
+        conn.close()
+        return [a for (a,) in result.rows]
 
 ##MICHAL
 def getPhotosCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
@@ -437,7 +454,29 @@ def getPhotosCanBeAddedToDiskAndRAM(diskID: int) -> List[int]:
 
 ##NOFAR
 def isCompanyExclusive(diskID: int) -> bool:
-    return True
+    is_exclusive_query = sql.SQL("""
+    SELECT CASE WHEN COUNT(DISTINCT ManufacturingCompany) = 1 THEN 'Yes' ELSE 'No' END AS SameCompany
+    FROM Disks d 
+    WHERE DiskID = {diskID} AND ManufacturingCompany = (
+    SELECT DISTINCT Company 
+    FROM RAMs 
+    WHERE RAMID in 
+    (SELECT RAMID
+    FROM RAMsOnDisk
+    WHERE DiskID = {diskID})
+    ) 
+    """).format(diskID=sql.Literal(diskID))
+    conn = None
+    result = []
+    try:
+        conn = Connector.DBConnector()
+        rows, result = conn.execute(is_exclusive_query)
+    except Exception as e:
+        return False
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.close()
+        return result[0]['SameCompany']
 
 ##MICHAL
 def isDiskContainingAtLeastNumExists(description : str, num : int) -> bool:
@@ -489,7 +528,29 @@ def getDisksContainingTheMostData() -> List[int]:
 
 ##NOFAR
 def getConflictingDisks() -> List[int]:
-    return []
+    conflicting_query = """
+    SELECT DiskID d
+    FROM PhotosOnDisk
+    WHERE (SELECT DISTINCT PhotoID 
+    FROM PhotosOnDisk
+    WHERE DiskID  = d) <>
+    (SELECT PhotoID 
+    FROM PhotosOnDisk
+    WHERE DiskID  = d)
+    ORDER BY DiskID ASC
+    """
+
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        rows, result = conn.execute(conflicting_query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        print(e)
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.close()
+        return [a for (a,) in result.rows]
 
 ##MICHAL
 def mostAvailableDisks() -> List[int]:
@@ -523,7 +584,31 @@ def mostAvailableDisks() -> List[int]:
 
 ##NOFAR
 def getClosePhotos(photoID: int) -> List[int]:
-    return []
+
+    close_query =sql.SQL("""
+    SELECT PhotoID
+    FROM PhotosOnDisk pd
+    WHERE PhotoID <> {photoID} 
+    GROUP BY PhotoID
+    HAVING COUNT(DISTINCT DiskID) >= (
+        SELECT COUNT(DISTINCT pd1.DiskID) * 0.5
+        FROM PhotosOnDisk pd1
+        WHERE pd1.PhotoID = {photoID}
+    )
+    ORDER BY pd.PhotoID ASC
+    LIMIT 10""").format(ID=sql.Literal(photoID))
+    
+    conn = None
+    try:
+        conn = Connector.DBConnector()
+        rows, result = conn.execute(close_query)
+        conn.commit()
+    except DatabaseException.ConnectionInvalid as e:
+        print(e)
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.close()
+        return [a for (a,) in result.rows]
 
 
 # if __name__ == '__main__':
