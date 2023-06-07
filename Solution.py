@@ -368,11 +368,13 @@ def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
     add_photo_to_disk_query = sql.SQL("""
     BEGIN TRANSACTION;
     
+    INSERT INTO PhotosOnDisk VALUES( {diskID}, {photoID});
+    
     UPDATE Disks
     SET FreeSpace = FreeSpace - {size}
     WHERE DiskID = {diskID};
             
-    INSERT INTO PhotosOnDisk VALUES( {diskID}, {photoID});
+    
     
     COMMIT;             
         """).format(photoID=sql.Literal(photo.getPhotoID()), diskID=sql.Literal(diskID), size=sql.Literal(photo.getSize()))
@@ -399,7 +401,7 @@ def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
     except DatabaseException.UNIQUE_VIOLATION as e:
         print(e)
         conn.rollback()
-        ret = ReturnValue.NOT_EXISTS
+        ret = ReturnValue.ALREADY_EXISTS
     except DatabaseException.NOT_NULL_VIOLATION as e:
         print(e)
         conn.rollback()
@@ -413,6 +415,7 @@ def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
         conn.commit()
         conn.close()
     return ret
+
 
 
 def removePhotoFromDisk(photo: Photo, diskID: int) -> ReturnValue:
@@ -668,9 +671,12 @@ def isDiskContainingAtLeastNumExists(description : str, num : int) -> bool:
 def getDisksContainingTheMostData() -> List[int]:
     most_data_query = """
     SELECT DiskID 
-    FROM PhotosOnDiskSize
+    FROM Disks d
     GROUP BY DiskID
-    ORDER BY SUM(DiskSizeNeeded) DESC, DiskID ASC
+    ORDER BY 
+    (SELECT COALESCE(SUM(DiskSizeNeeded),0)
+    FROM PhotosOnDiskSize
+    WHERE DiskID=d.DiskID) DESC, DiskID ASC
     LIMIT 5
     """
 
@@ -704,6 +710,10 @@ def getConflictingDisks() -> List[int]:
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
         print(e)
+        return []
+    except Exception as e:
+        print (e)
+        return []
     finally:
         # will happen any way after try termination or exception handling
         conn.close()
