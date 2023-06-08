@@ -344,6 +344,26 @@ def addDiskAndPhoto(disk: Disk, photo: Photo) -> ReturnValue:
                 Size=sql.Literal(photo.getSize()), DiskID=sql.Literal(disk.getDiskID()), Manu=sql.Literal(disk.getCompany()),
                 Speed=sql.Literal(disk.getSpeed()), Space=sql.Literal(disk.getFreeSpace()),
                 Cost=sql.Literal(disk.getCost()))
+    conn = None
+    rows_affected = 0
+    ret = ReturnValue.OK
+    try:
+        conn = Connector.DBConnector()
+        rows_affected, result = conn.execute(disk_and_photo_query)
+    except DatabaseException.ConnectionInvalid as e:
+        conn.rollback()
+        ret = ReturnValue.ERROR
+    except DatabaseException.UNIQUE_VIOLATION as e:
+        conn.rollback()
+        ret = ReturnValue.ALREADY_EXISTS
+    except Exception as e:
+        conn.rollback()
+        ret = ReturnValue.ERROR
+    finally:
+        # will happen any way after try termination or exception handling
+        conn.commit()
+        conn.close()
+    return ret
 
     return executeQuery(disk_and_photo_query)
 
