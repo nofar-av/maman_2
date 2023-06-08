@@ -51,28 +51,28 @@ def executeDelQuery(query) -> ReturnValue:
         if rows_affected == 0:
             res = ReturnValue.NOT_EXISTS
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.ERROR
     except DatabaseException.UNIQUE_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.ALREADY_EXISTS
     except DatabaseException.NOT_NULL_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.BAD_PARAMS
     except DatabaseException.CHECK_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res= ReturnValue.BAD_PARAMS
 
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.NOT_EXISTS
     except Exception as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.ERROR
     finally:
@@ -88,28 +88,27 @@ def executeQuery(query) -> ReturnValue:
         conn.execute(query)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.ERROR
     except DatabaseException.UNIQUE_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.ALREADY_EXISTS
     except DatabaseException.NOT_NULL_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.BAD_PARAMS
     except DatabaseException.CHECK_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res= ReturnValue.BAD_PARAMS
 
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
-        print(e)
+        
         conn.rollback()
         res = ReturnValue.NOT_EXISTS
     except Exception as e:
-        print(e)
         conn.rollback()
         res = ReturnValue.ERROR
     finally:
@@ -126,7 +125,6 @@ def executeQueryBasic(query) -> ReturnValue:
         conn.execute(query)
         conn.commit()
     except Exception as e:
-        print(e)
         conn.rollback()
         res = ReturnValue.ERROR
     finally:
@@ -245,7 +243,6 @@ def getPhotoByID(photoID: int) -> Photo:
         rows_effected, result = conn.execute(f"SELECT * FROM Photos WHERE PhotoID = {photoID}")
     except Exception as e:
         return Photo.badPhoto()
-
     finally:
         conn.close()
     return CreatePhotoFromResultSet(result, rows_effected)
@@ -273,11 +270,9 @@ def deletePhoto(photo: Photo) -> ReturnValue:
         conn.execute(del_photo_query)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
         conn.rollback()
         res = ReturnValue.ERROR
     except Exception as e:
-        print(e)
         conn.rollback()
         res = ReturnValue.ERROR
     finally:
@@ -309,17 +304,6 @@ def getDiskByID(diskID: int) -> Disk:
 
 def deleteDisk(diskID: int) -> ReturnValue:
     query = sql.SQL("DELETE FROM Disks WHERE DiskID = {diskID}").format(diskID=sql.Literal(diskID))
-    # conn = None
-    # rows_effected = 0
-    # try:
-    #     conn = Connector.DBConnector()
-    #     rows_effected, _ = conn.execute(
-    # except
-    # except Exception as e:
-    #     return ReturnValue.ERROR
-    #
-    # finally:
-    #     conn.close()
     return executeDelQuery(query)  # make sure that it's deleted from all tables
 
 
@@ -374,8 +358,6 @@ def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
     SET FreeSpace = FreeSpace - {size}
     WHERE DiskID = {diskID};
             
-    
-    
     COMMIT;             
         """).format(photoID=sql.Literal(photo.getPhotoID()), diskID=sql.Literal(diskID), size=sql.Literal(photo.getSize()))
     conn = None
@@ -387,27 +369,21 @@ def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
         # if result and int(result[0]['updated']) == 0:
         #     ret = ReturnValue.BAD_PARAMS
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
         conn.rollback()
         ret = ReturnValue.ERROR
     except DatabaseException.CHECK_VIOLATION as e:
-        print(e)
         conn.rollback()
         ret = ReturnValue.BAD_PARAMS
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
-        print(e)
         conn.rollback()
         ret = ReturnValue.NOT_EXISTS
     except DatabaseException.UNIQUE_VIOLATION as e:
-        print(e)
         conn.rollback()
         ret = ReturnValue.ALREADY_EXISTS
     except DatabaseException.NOT_NULL_VIOLATION as e:
-        print(e)
         conn.rollback()
         ret = ReturnValue.NOT_EXISTS
     except Exception as e:
-        print(e)
         conn.rollback()
         ret = ReturnValue.ERROR
     finally:
@@ -419,18 +395,22 @@ def addPhotoToDisk(photo: Photo, diskID: int) -> ReturnValue:
 
 
 def removePhotoFromDisk(photo: Photo, diskID: int) -> ReturnValue:
-    remove_photo_from_disk_query = f"""
+    remove_photo_from_disk_query = sql.SQL("""
     BEGIN TRANSACTION;
     UPDATE Disks
-        SET FreeSpace = FreeSpace + {photo.getSize()}
+        SET FreeSpace = FreeSpace + {photoSize}
         WHERE DiskID = (SELECT DiskID FROM PhotosOnDisk
-                        WHERE PhotoID = {photo.getPhotoID()} AND DiskID = {diskID});
+                        WHERE PhotoID = {photoID} AND DiskID = {diskID}) 
+                        AND EXISTS(SELECT * FROM Photos
+                        WHERE PhotoID = {photoID} AND Description = {description}
+                        AND DiskSizeNeeded = {photoSize});
                                             
     DELETE FROM PhotosOnDisk 
-        WHERE PhotoID = {photo.getPhotoID()} AND DiskID = {diskID};
+        WHERE PhotoID = {photoID} AND DiskID = {diskID};
 
     COMMIT;              
-        """
+        """).format(photoID=sql.Literal(photo.getPhotoID()), photoSize=sql.Literal(photo.getSize()),
+                    diskID=sql.Literal(diskID),description=sql.Literal(photo.getDescription()))
 
     return executeQueryBasic(remove_photo_from_disk_query)
 
@@ -447,22 +427,21 @@ def addRAMToDisk(ramID: int, diskID: int) -> ReturnValue:
         conn.execute(ram_to_disk_query)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
+        
         res = ReturnValue.ERROR
     except DatabaseException.UNIQUE_VIOLATION as e:
-        print(e)
+        
         res = ReturnValue.ALREADY_EXISTS
     except DatabaseException.NOT_NULL_VIOLATION as e:
-        print(e)
+        
         res = ReturnValue.BAD_PARAMS
     except DatabaseException.CHECK_VIOLATION as e:
-        print(e)
+        
         res= ReturnValue.ALREADY_EXISTS
     except DatabaseException.FOREIGN_KEY_VIOLATION as e:
-        print(e)
+        
         res = ReturnValue.NOT_EXISTS
     except Exception as e:
-        print(e)
         res = ReturnValue.ERROR
     finally:
         # will happen any way after try termination or exception handling
@@ -493,7 +472,6 @@ def averagePhotosSizeOnDisk(diskID: int) -> float:
             average_size = float(result[0]['average_size'])
     except Exception as e:
         return -1
-
     finally:
         conn.close()
     return average_size
@@ -686,7 +664,7 @@ def getDisksContainingTheMostData() -> List[int]:
         rows, result = conn.execute(most_data_query)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
+        return []
     finally:
         # will happen any way after try termination or exception handling
         conn.close()
@@ -709,10 +687,8 @@ def getConflictingDisks() -> List[int]:
         rows, result = conn.execute(conflicting_query)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
         return []
     except Exception as e:
-        print (e)
         return []
     finally:
         # will happen any way after try termination or exception handling
@@ -741,7 +717,6 @@ def mostAvailableDisks() -> List[int]:
         rows, result = conn.execute(most_available_query)
         conn.commit()
     except Exception as e:
-        print(e)
         return []
     finally:
         # will happen any way after try termination or exception handling
@@ -776,150 +751,12 @@ def getClosePhotos(photoID: int) -> List[int]:
         rows, result = conn.execute(close_query)
         conn.commit()
     except DatabaseException.ConnectionInvalid as e:
-        print(e)
+        return []
+    except Exception as e:
+        return []
     finally:
         # will happen any way after try termination or exception handling
         conn.close()
     return [a for (a,) in result.rows]
 
 
-# if __name__ == '__main__':
-#     dropTables()
-#     print("Hello")
-#     print("0. Creating all tables")
-#     createTables()
-#     addPhoto(Photo(1, "Nofar", 50))
-#     addPhoto(Photo(2, "Nofar", 60))
-#     our_photo = getPhotoByID(1)
-#     addDisk(Disk(1,"Michal", 50, 300, 10))
-#     addDisk(Disk(2, "Michal2", 50, 300, 10))
-#     addDisk(Disk(3, "Michal2", 50, 300, 10))
-#     addDisk(Disk(4, "Michal2", 50, 300, 10))
-#     addDisk(Disk(5, "Michal2", 50, 300, 10))
-#     addDisk(Disk(6, "Michal2", 50, 300, 10))
-#     addDisk(Disk(7, "Michal2", 50, 300, 10))
-#     addPhotoToDisk(Photo(1, "Nofar", 50), 1)
-#     addPhotoToDisk(Photo(2, "Nofar", 60), 1)
-#     addPhotoToDisk(Photo(2, "Nofar", 60), 2)
-#     addPhotoToDisk(our_photo ,3)
-#     addPhotoToDisk(our_photo, 4)
-#     addPhotoToDisk(our_photo, 5)
-#     addPhotoToDisk(our_photo, 6)
-#     disk_one_average = averagePhotosSizeOnDisk(1)
-#     cost_for_nofar = getCostForDescription("Nofar")
-#     most_data = getDisksContainingTheMostData()
-#     removePhotoFromDisk(Photo(1, "Nofar", 50), 1)
-#     ret = removePhotoFromDisk(Photo(1, "Nofar", 50), 1)
-#     dropTables()
-# 
-#     createTables()
-#     addDisk(Disk(1, "Michal", 50, 300, 10))
-#     addDisk(Disk(2, "Michal2", 50, 300, 10))
-#     addDisk(Disk(3, "Michal3", 50, 300, 10))
-# 
-#     #deletePhoto(Photo(1, "Nofar", 50))
-#     dropTables()
-#     Test.test_RAM_add_get_and_remove()
-
-if __name__ == '__main__':
-    createTables()
-    addPhotoToDisk(Photo(1,"NOFAR", 20),1)
-#     dropTables()
-#     createTables()
-#     print("adding rams and disks:")
-#     addRAM(RAM(1, "Dell", 50))
-#     addRAM(RAM(2, "HP", 50))
-#     addDisk(Disk(1, "Michal", 50, 300, 10))
-#     addDisk(Disk(2, "Michal2", 50, 300, 10))
-#     print("Adding photos:")
-#     addPhoto(Photo(1, "Nofar", 50))
-#     photo_one = getPhotoByID(1)
-#     addPhoto(Photo(2, "Nofar", 40))
-#     photo_two = getPhotoByID(2)
-#     print("adding ram 1 to disk 1:")
-#     addRAMToDisk(1,1)
-#     print ("adding ram 2 to disk 1:")
-#     addRAMToDisk(2,1)
-#     print("Total RAM on disk 1: ")
-#     print(getTotalRamOnDisk(1))
-#     print(getTotalRamOnDisk(3))
-#     print("photos that can be added to disk 1 and ram:")
-#     print(getPhotosCanBeAddedToDiskAndRAM(1))
-#     print("photos that can be added to disk 2:")
-#     print(getPhotosCanBeAddedToDisk(2))
-#     print("photos that can be added to disk 2 and ram:")
-#     print(getPhotosCanBeAddedToDiskAndRAM(2))
-#     print("adding photo 1 to disk1:")
-#     addPhotoToDisk(photo_one,1)
-#     print("adding photo 2 to disk1:")
-#     addPhotoToDisk(photo_two, 1)
-#     print("adding photo 1 to disk2:")
-#     addPhotoToDisk(photo_one,2)
-#     print("Conflicting disks: []")
-#
-#     print("adding photo_one a second time to disk 1")
-#     addPhotoToDisk(photo_one,1)
-#     print("conflicting disks: [1]")
-#     print(getConflictingDisks())
-#     print(getClosePhotos(2))
-#     print("Checking If there is a disk containing at least one photo with Nofar as des (TRUE):")
-#     print(isDiskContainingAtLeastNumExists("Nofar",1))
-#     print("Checking If there is a disk containing at least three photos with Nofar as des (FALSE):")
-#
-#     print(isDiskContainingAtLeastNumExists("Nofar",3))
-#     print("Checking If there is a disk containing at least one photo with MICHAL as des (FALSE):")
-#
-#     print(isDiskContainingAtLeastNumExists("Michal",1))
-#     print("removing RAM 1 from disk 1:")
-#     removeRAMFromDisk(1,1)
-#
-#     first_ram = getRAMByID(1)
-#     print("deleting RAM1:")
-#     deleteRAM(1)
-#
-#     print("Adding disks to check most available disks")
-#     addDisk(Disk(3, "Michal3", 10, 300, 10))
-#     addDisk(Disk(4, "Michal4", 20, 300, 10))
-#     addDisk(Disk(5, "Michal5", 30, 300, 10))
-#     addDisk(Disk(6, "Michal6", 40, 300, 10))
-#
-#     removePhotoFromDisk(photo_one, 1)
-#     removePhotoFromDisk(photo_two, 1)
-#     removePhotoFromDisk(photo_one,2)
-#
-#     print("Six Disks. All have 300 free space. 5 should be returned, [1,2,6,5,4]:")
-#     print(mostAvailableDisks())
-#     print("A new photo is added of size 299. We'll put it on disk 1 and 3. Now return [2,6,5,4]")
-#     addPhoto(Photo(3, "Nofar", 299))
-#     photo_three = getPhotoByID(3)
-#     addPhotoToDisk(photo_three,1)
-#     addPhotoToDisk(photo_three,3)
-#     print(mostAvailableDisks())
-#     print("Add a smaller disk 7 that can only hold 2 of 3 photos. Should be added to the end of the list")
-#     addDisk(Disk(7, "Michal 7", 60, 100,10))
-#     print(mostAvailableDisks())
-#
-#
-#     clearTables()
-#     addDisk(Disk(1, "Dell", 10, 300, 10))
-#     addRAM(RAM(1, "Dell", 50))
-#     addRAM(RAM(2, "HP", 50))
-#     addRAMToDisk(1,1)
-#     addRAMToDisk(2,1)
-#     print(isCompanyExclusive(1))
-#
-#
-#     dropTables()
-
-    print(isDiskContainingAtLeastNumExists("Nofar",3))
-    print("Checking If there is a disk containing at least one photo with MICHAL as des (FALSE):")
-
-    print(isDiskContainingAtLeastNumExists("Michal",1))
-    print("removing RAM 1 from disk 1:")
-    removeRAMFromDisk(1,1)
-
-    first_ram = getRAMByID(1)
-    print("deleting RAM1:")
-    deleteRAM(1)
-
-    dropTables()
